@@ -1,0 +1,9 @@
+Flask==3.0.0
+Flask-CORS==4.0.0
+pandas==2.1.0
+matplotlib==3.8.0
+chart.js==3.9.1
+ping3==4.0.4
+python-dotenv==1.0.0
+APScheduler==3.10.4
+Werkzeug==3.0.0

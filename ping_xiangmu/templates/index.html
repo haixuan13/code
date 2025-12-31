@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Ping监控系统 - 首页{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <!-- 创建新任务区域 -->
+    <section id="create" class="card">
+        <h2>创建新的Ping监控任务</h2>
+        <form id="pingForm" onsubmit="startPingTask(event)">
+            <div class="form-group">
+                <label for="target_ip">目标地址:</label>
+                <input type="text" id="target_ip" name="target_ip" 
+                       placeholder="例如: 8.8.8.8 或 google.com" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="duration_hours">监控时长(小时):</label>
+                <select id="duration_hours" name="duration_hours">
+                    <option value="1">1小时</option>
+                    <option value="6">6小时</option>
+                    <option value="12">12小时</option>
+                    <option value="24" selected>24小时</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">开始监控</button>
+        </form>
+        
+        <div id="taskStatus" class="status-message" style="display: none;"></div>
+    </section>
+
+    <!-- 任务列表 -->
+    <section id="tasks" class="card">
+        <h2>监控任务列表</h2>
+        <div class="task-list">
+            {% for task in tasks %}
+            <div class="task-item">
+                <div class="task-header">
+                    <h3>{{ task.target_ip }}</h3>
+                    <span class="task-status {{ task.status }}">
+                        {{ task.status }}
+                    </span>
+                </div>
+                <div class="task-details">
+                    <p>开始时间: {{ task.start_time }}</p>
+                    <p>持续时间: {{ task.duration_hours }}小时</p>
+                    {% if task.progress %}
+                    <div class="progress-bar">
+                        <div class="progress" style="width: {{ (task.progress | default(0)) ~ '%' }};"></div>
+                        <span>{{ task.progress | default(0) }}%</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="task-actions">
+                    <a href="{{ url_for('task_details', task_id=task.id) }}" 
+                       class="btn btn-secondary">查看详情</a>
+                    {% if task.status == 'running' %}
+                    <button onclick="stopTask('{{ task.id }}')" 
+                            class="btn btn-danger">停止</button>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="no-tasks">暂无监控任务</p>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function startPingTask(event) {
+    event.preventDefault();
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    const statusDiv = document.getElementById('taskStatus');
+    statusDiv.style.display = 'block';
+    statusDiv.className = 'status-message loading';
+    statusDiv.textContent = '正在启动监控任务...';
+    
+    try {
+        const response = await fetch('/start_ping', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            statusDiv.className = 'status-message success';
+            statusDiv.textContent = result.message;
+            form.reset();
+            
+            // 刷新页面以显示新任务
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            statusDiv.className = 'status-message error';
+            statusDiv.textContent = result.error || '启动任务失败';
+        }
+    } catch (error) {
+        statusDiv.className = 'status-message error';
+        statusDiv.textContent = '网络错误: ' + error.message;
+    }
+}
+
+async function stopTask(taskId) {
+    if (!confirm('确定要停止这个监控任务吗？')) return;
+    
+    try {
+        const response = await fetch(`/stop_task/${taskId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('任务已停止');
+            location.reload();
+        } else {
+            alert(result.error || '停止任务失败');
+        }
+    } catch (error) {
+        alert('网络错误: ' + error.message);
+    }
+}
+</script>
+{% endblock %}

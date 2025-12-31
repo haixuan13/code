@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}监控结果 - {{ task.target_ip }}{% endblock %}
+
+{% block content %}
+<div class="results-page">
+    <!-- 任务概览 -->
+    <section class="card task-overview">
+        <div class="overview-header">
+            <h2>监控任务概览</h2>
+            <div class="task-meta">
+                <span class="label">目标地址: {{ task.target_ip }}</span>
+                <span class="label">状态: {{ task.status }}</span>
+                <span class="label">开始时间: {{ task.start_time }}</span>
+            </div>
+        </div>
+        
+        {% if report %}
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>可用性</h3>
+                <p class="stat-value">{{ "%.2f"|format(report.availability) }}%</p>
+            </div>
+            <div class="stat-card">
+                <h3>平均响应时间</h3>
+                <p class="stat-value">{{ "%.2f"|format(report.avg_response_time) }}ms</p>
+            </div>
+            <div class="stat-card">
+                <h3>总Ping次数</h3>
+                <p class="stat-value">{{ report.total_pings }}</p>
+            </div>
+            <div class="stat-card">
+                <h3>成功率</h3>
+                <p class="stat-value">
+                    {{ report.successful_pings }}/{{ report.total_pings }}
+                </p>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    <!-- 图表区域 -->
+    <section class="card">
+        <h2>监控图表</h2>
+        <div class="charts-container">
+            <div class="chart-wrapper">
+                <canvas id="responseTimeChart"></canvas>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="availabilityChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-actions">
+            <a href="{{ url_for('get_chart', task_id=task.id) }}" 
+               class="btn btn-secondary" target="_blank">查看完整图表</a>
+            <a href="{{ url_for('export_data', task_id=task.id) }}" 
+               class="btn btn-primary">导出数据 (Excel)</a>
+        </div>
+    </section>
+
+    <!-- 数据表格 -->
+    <section class="card">
+        <h2>最新数据</h2>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>时间戳</th>
+                        <th>响应时间 (ms)</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in data_preview %}
+                    <tr>
+                        <td>{{ row.timestamp }}</td>
+                        <td class="{{ 'success' if row.response_time else 'timeout' }}">
+                            {{ "%.2f"|format(row.response_time) if row.response_time else '超时' }}
+                        </td>
+                        <td class="status-{{ row.status }}">
+                            {{ row.status }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 从API获取数据
+async function loadChartData() {
+    try {
+        const response = await fetch('/api/task/{{ task.id }}/data');
+        const data = await response.json();
+        
+        if (data.error) {
+            console.error(data.error);
+            return;
+        }
+        
+        // 创建响应时间图表
+        createResponseTimeChart(data);
+        
+        // 创建可用性图表
+        createAvailabilityChart(data);
+        
+    } catch (error) {
+        console.error('加载图表数据失败:', error);
+    }
+}
+
+function createResponseTimeChart(data) {
+    const ctx = document.getElementById('responseTimeChart').getContext('2d');
+    
+    // 只显示最近100个点以避免图表过于拥挤
+    const recentTimestamps = data.timestamps.slice(-100);
+    const recentResponseTimes = data.response_times.slice(-100);
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: recentTimestamps.map(t => new Date(t).toLocaleTimeString()),
+            datasets: [{
+                label: '响应时间 (ms)',
+                data: recentResponseTimes,
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: '响应时间趋势'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: '毫秒 (ms)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: '时间'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createAvailabilityChart(data) {
+    const ctx = document.getElementById('availabilityChart').getContext('2d');
+    
+    // 计算每个时间段的可用性
+    const windowSize = 10; // 每10个点计算一次可用性
+    const availabilityData = [];
+    
+    for (let i = 0; i < data.statuses.length; i += windowSize) {
+        const windowStatuses = data.statuses.slice(i, i + windowSize);
+        const successCount = windowStatuses.filter(s => s === 'success').length;
+        availabilityData.push((successCount / windowStatuses.length) * 100);
+    }
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: availabilityData.map((_, i) => `区间 ${i + 1}`),
+            datasets: [{
+                label: '可用性 (%)',
+                data: availabilityData,
+                borderColor: 'rgb(54, 162, 235)',
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: '可用性趋势'
+                }
+            },
+            scales: {
+                y: {
+                    min: 0,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: '可用性 (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 页面加载完成后获取数据
+document.addEventListener('DOMContentLoaded', loadChartData);
+</script>
+{% endblock %}
